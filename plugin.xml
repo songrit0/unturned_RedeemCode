@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Plugin name="RedeemCode">
+  <Version>1.0.0</Version>
+  <Author>imaximum.tech</Author>
+  <Description>
+    MySQL-backed redeem code system. Players run /code &lt;code&gt; to claim items defined in the
+    database. One redemption per player, optional global usage cap, multiple items per code.
+    Codes are managed directly in the DB (e.g. by a Discord bot).
+  </Description>
+  <Target>
+    <Unturned>3.26.3.2</Unturned>
+    <RocketMod>4.9.3.18</RocketMod>
+  </Target>
+  <Commands>
+    <Command name="code" aliases="redeem" permission="redeemcode.use">Redeem a code for items</Command>
+  </Commands>
+</Plugin>

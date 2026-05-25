@@ -1,0 +1,8 @@
+obj/
+.vs/
+*.user
+*.suo
+
+# Rocket runtime files (generated on the server, not source)
+*.configuration.xml
+*.translation.xml
