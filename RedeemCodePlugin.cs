@@ -94,7 +94,7 @@ namespace RedeemCode
                 }
                 int amount = Mathf.Clamp(reward.Amount, 1, Mathf.Max(1, cfg.MaxAmountPerItem));
                 for (int i = 0; i < amount; i++)
-                    if (!GiveOrDrop(player, reward.Id))
+                    if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State))
                         anyDropped = true;
             }
 
@@ -103,10 +103,19 @@ namespace RedeemCode
                 Say(player, cfg.MsgItemDropped, code);
         }
 
-        /// <summary>Adds one item to the player's inventory, or drops it at their feet if full.</summary>
-        private static bool GiveOrDrop(Player player, ushort itemId)
+        /// <summary>
+        /// Adds one item to the player's inventory, or drops it at their feet if full.
+        /// If <paramref name="state"/> is non-null, builds the item from (id, amount=1, quality, state)
+        /// — preserves attachments / ammo / durability from a P2P listing. Otherwise the default
+        /// auto-generated Item is used (existing behaviour).
+        /// </summary>
+        private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state)
         {
-            Item item = new Item(itemId, true);
+            Item item;
+            if (state != null && state.Length > 0)
+                item = new Item(itemId, 1, quality, state);
+            else
+                item = new Item(itemId, true);
             if (player.inventory.tryAddItem(item, true))
                 return true;
             ItemManager.dropItem(item, player.transform.position, true, true, true);

@@ -21,6 +21,8 @@ namespace RedeemCode
     {
         public ushort Id;
         public int Amount;
+        public byte Quality;
+        public byte[] State; // null = use default (existing behaviour); non-null = base64-decoded state from rc_code_items.state
     }
 
     public sealed class RedeemOutcome
@@ -36,7 +38,7 @@ namespace RedeemCode
     ///
     /// Tables (prefix configurable):
     ///   &lt;p&gt;codes        (id, code UNIQUE, max_uses, uses, enabled, expires_at, created_at)
-    ///   &lt;p&gt;code_items   (id, code_id, item_id, amount)
+    ///   &lt;p&gt;code_items   (id, code_id, item_id, amount, quality, state, rot)
     ///   &lt;p&gt;redemptions  (id, code_id, steam_id, redeemed_at, UNIQUE(code_id, steam_id))
     /// </summary>
     public sealed class RedeemDatabase
@@ -87,8 +89,17 @@ namespace RedeemCode
                         + "`code_id` INT NOT NULL,"
                         + "`item_id` INT UNSIGNED NOT NULL,"
                         + "`amount` INT UNSIGNED NOT NULL DEFAULT 1,"
+                        + "`quality` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
+                        + "`state` LONGTEXT NULL,"
+                        + "`rot` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
                         + "INDEX `idx_code` (`code_id`)"
                         + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+                    // Idempotent column adds for upgrades from earlier schema (pre-state).
+                    // INFORMATION_SCHEMA check keeps this compatible with MySQL 5.7 / 8.0 / MariaDB.
+                    AddColumnIfMissing(c, _items, "quality", "TINYINT UNSIGNED NOT NULL DEFAULT 100 AFTER `amount`");
+                    AddColumnIfMissing(c, _items, "state",   "LONGTEXT NULL AFTER `quality`");
+                    AddColumnIfMissing(c, _items, "rot",     "TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `state`");
 
                     Exec(c, "CREATE TABLE IF NOT EXISTS `" + _redemptions + "` ("
                         + "`id` INT AUTO_INCREMENT PRIMARY KEY,"
@@ -110,6 +121,27 @@ namespace RedeemCode
         private static void Exec(MySqlConnection c, string sql)
         {
             using (MySqlCommand cmd = new MySqlCommand(sql, c)) cmd.ExecuteNonQuery();
+        }
+
+        private static void AddColumnIfMissing(MySqlConnection c, string table, string column, string definition)
+        {
+            try
+            {
+                using (MySqlCommand cmd = new MySqlCommand(
+                    "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+                    + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME=@t AND COLUMN_NAME=@col LIMIT 1;", c))
+                {
+                    cmd.Parameters.AddWithValue("@t", table);
+                    cmd.Parameters.AddWithValue("@col", column);
+                    if (cmd.ExecuteScalar() != null) return;
+                }
+                Exec(c, "ALTER TABLE `" + table + "` ADD COLUMN `" + column + "` " + definition + ";");
+                Logger.Log("[RedeemCode] Added column " + table + "." + column);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogException(ex, "[RedeemCode] AddColumnIfMissing " + table + "." + column);
+            }
         }
 
         /// <summary>
@@ -195,16 +227,46 @@ namespace RedeemCode
 
                     // Load the rewards.
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT `item_id`,`amount` FROM `" + _items + "` WHERE `code_id`=@id;", c))
+                        "SELECT `item_id`,`amount`,`quality`,`state` FROM `" + _items + "` WHERE `code_id`=@id;", c))
                     {
                         cmd.Parameters.AddWithValue("@id", codeId);
                         using (MySqlDataReader r = cmd.ExecuteReader())
                             while (r.Read())
+                            {
+                                byte quality = 100;
+                                object qObj = r["quality"];
+                                if (qObj != null && qObj != DBNull.Value)
+                                {
+                                    int q = Convert.ToInt32(qObj);
+                                    if (q < 0) q = 0; else if (q > 100) q = 100;
+                                    quality = (byte)q;
+                                }
+
+                                byte[] state = null;
+                                object sObj = r["state"];
+                                if (sObj != null && sObj != DBNull.Value)
+                                {
+                                    string s = Convert.ToString(sObj);
+                                    if (!string.IsNullOrEmpty(s))
+                                    {
+                                        try { state = Convert.FromBase64String(s); }
+                                        catch (FormatException)
+                                        {
+                                            Logger.LogWarning("[RedeemCode] code '" + code + "' item_id="
+                                                + r["item_id"] + " has malformed base64 state; falling back to default state.");
+                                            state = null;
+                                        }
+                                    }
+                                }
+
                                 outcome.Items.Add(new ItemReward
                                 {
                                     Id = (ushort)Convert.ToUInt32(r["item_id"]),
-                                    Amount = Convert.ToInt32(r["amount"])
+                                    Amount = Convert.ToInt32(r["amount"]),
+                                    Quality = quality,
+                                    State = state
                                 });
+                            }
                     }
 
                     outcome.Status = RedeemStatus.Success;
