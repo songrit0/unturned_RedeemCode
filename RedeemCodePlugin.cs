@@ -105,17 +105,16 @@ namespace RedeemCode
 
         /// <summary>
         /// Adds one item to the player's inventory, or drops it at their feet if full.
-        /// If <paramref name="state"/> is non-null, builds the item from (id, amount=1, quality, state)
-        /// — preserves attachments / ammo / durability from a P2P listing. Otherwise the default
-        /// auto-generated Item is used (existing behaviour).
+        /// Starts from a default-generated Item (so every item type — helmet, food, blueprint, gun —
+        /// has a valid state buffer), then overwrites quality, and overwrites state when the code
+        /// row carries one (preserves attachments / ammo / durability for P2P listings).
         /// </summary>
         private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state)
         {
-            Item item;
+            Item item = new Item(itemId, true);
+            item.quality = quality;
             if (state != null && state.Length > 0)
-                item = new Item(itemId, 1, quality, state);
-            else
-                item = new Item(itemId, true);
+                item.state = state;
             if (player.inventory.tryAddItem(item, true))
                 return true;
             ItemManager.dropItem(item, player.transform.position, true, true, true);
