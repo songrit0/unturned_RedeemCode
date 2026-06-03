@@ -44,8 +44,12 @@ CREATE TABLE rc_codes (
 CREATE TABLE rc_code_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   code_id INT NOT NULL,
-  item_id INT UNSIGNED NOT NULL,
+  item_id INT UNSIGNED NOT NULL,                  -- kind=0: item id · kind=1: vehicle id
   amount INT UNSIGNED NOT NULL DEFAULT 1,
+  quality TINYINT UNSIGNED NOT NULL DEFAULT 100,  -- คุณภาพ/ความทนทาน 0-100 (ของไอเทม)
+  state LONGTEXT NULL,                            -- base64 ของ item.state (อะไหล่/กระสุน) — NULL = ค่า default
+  rot TINYINT UNSIGNED NOT NULL DEFAULT 0,        -- สงวนไว้ (rotation)
+  kind TINYINT UNSIGNED NOT NULL DEFAULT 0,       -- 0 = ไอเทม, 1 = ยานพาหนะ (vehicle)
   INDEX (code_id)
 );
 CREATE TABLE rc_redemptions (
@@ -68,10 +72,29 @@ INSERT INTO rc_code_items (code_id, item_id, amount) VALUES
 ```
 ผู้เล่นพิมพ์ `/code adc14s` → ได้ของ (โค้ดไม่สนตัวพิมพ์เล็ก/ใหญ่)
 
+## แจกยานพาหนะ (Vehicle rewards)
+> โค้ดแจก **ยานพาหนะ** ได้ด้วย โดยตั้ง `kind = 1` แล้วใส่ **vehicle id** ลงใน `item_id`
+> (Unturned แยก id ของไอเทมกับยานพาหนะคนละชุดกัน — `kind` เป็นตัวบอกว่า `item_id` หมายถึงอะไร)
+>
+> A reward row grants a vehicle when `kind = 1`; `item_id` then holds a **vehicle id**
+> (item ids and vehicle ids are separate id spaces in Unturned). `kind = 0` (default) = item, as before.
+
+```sql
+-- โค้ด ridefree: 50 คนแรก, ได้รถ Roadster (vehicle id 94) x1
+INSERT INTO rc_codes (code, max_uses) VALUES ('ridefree', 50);
+SET @cid = LAST_INSERT_ID();
+INSERT INTO rc_code_items (code_id, item_id, amount, kind) VALUES
+  (@cid, 94, 1, 1);   -- kind=1 → item_id (94) คือ vehicle id
+```
+- ยานพาหนะจะ spawn ใกล้ ๆ ตัวผู้เล่น (ด้านหน้าเล็กน้อย) และ **ล็อก/เป็นเจ้าของให้ผู้เล่นที่ใช้โค้ด**
+- `amount` > 1 = spawn หลายคัน · `quality` / `state` ใช้กับไอเทมเท่านั้น (ยานพาหนะไม่เข้ากระเป๋า จึงไม่มีเรื่องของตก)
+- ถ้า vehicle id ไม่มีจริง ปลั๊กอินจะ log warning แล้วข้าม (เหมือนกรณี item id ผิด)
+- ร้านค้า (shop API/web) ที่ขายยานพาหนะก็ใช้กลไกเดียวกันนี้ (`kind = 1`)
+
 ## Notes
 - `max_uses = 0` = ไม่จำกัดจำนวนรวม (แต่ยัง 1 คน/ครั้งเดียวเสมอ)
 - `enabled = 0` ปิดโค้ดชั่วคราว · ใส่ `expires_at` ให้หมดอายุตามเวลา
-- `amount` = จำนวนชิ้นที่แจก (clamp ด้วย `MaxAmountPerItem`)
-- หา item id: ใช้ปลั๊กอิน DropMerger `/itemid` หรือ Unturned wiki
+- `amount` = จำนวนชิ้นที่แจก (clamp ด้วย `MaxAmountPerItem`) · ยานพาหนะ (`kind=1`) ก็ spawn ตาม `amount`
+- หา item id / vehicle id: ใช้ปลั๊กอิน DropMerger `/itemid` หรือ Unturned wiki (vehicle id อยู่คนละชุดกับ item id)
 
 Built by imaximum.tech.

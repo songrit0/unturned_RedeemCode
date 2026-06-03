@@ -87,12 +87,25 @@ namespace RedeemCode
             foreach (ItemReward reward in outcome.Items)
             {
                 if (reward.Id == 0) continue;
+                int amount = Mathf.Clamp(reward.Amount, 1, Mathf.Max(1, cfg.MaxAmountPerItem));
+
+                if (reward.Kind == 1) // vehicle
+                {
+                    if (Assets.find(EAssetType.VEHICLE, reward.Id) == null)
+                    {
+                        Logger.LogWarning("[RedeemCode] code '" + code + "' references unknown vehicle id " + reward.Id);
+                        continue;
+                    }
+                    for (int i = 0; i < amount; i++)
+                        SpawnVehicle(player, reward.Id);
+                    continue;
+                }
+
                 if (Assets.find(EAssetType.ITEM, reward.Id) == null)
                 {
                     Logger.LogWarning("[RedeemCode] code '" + code + "' references unknown item id " + reward.Id);
                     continue;
                 }
-                int amount = Mathf.Clamp(reward.Amount, 1, Mathf.Max(1, cfg.MaxAmountPerItem));
                 for (int i = 0; i < amount; i++)
                     if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State))
                         anyDropped = true;
@@ -119,6 +132,17 @@ namespace RedeemCode
                 return true;
             ItemManager.dropItem(item, player.transform.position, true, true, true);
             return false;
+        }
+
+        /// <summary>
+        /// Spawns one vehicle near the player, locked/owned to them. Vehicles use a separate id
+        /// space from items and cannot go into the inventory, so they are always placed in the world
+        /// (slightly in front of the player to avoid spawning inside them).
+        /// </summary>
+        private static void SpawnVehicle(Player player, ushort id)
+        {
+            Vector3 point = player.transform.position + player.transform.forward * 3f + Vector3.up * 1f;
+            VehicleManager.spawnLockedVehicleForPlayerV2(id, point, player.transform.rotation, player);
         }
 
         private static void Say(Player player, Message msg, string code)

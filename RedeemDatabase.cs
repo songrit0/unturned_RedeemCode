@@ -23,6 +23,7 @@ namespace RedeemCode
         public int Amount;
         public byte Quality;
         public byte[] State; // null = use default (existing behaviour); non-null = base64-decoded state from rc_code_items.state
+        public byte Kind;    // 0 = item (Id is an item id), 1 = vehicle (Id is a vehicle id)
     }
 
     public sealed class RedeemOutcome
@@ -38,7 +39,7 @@ namespace RedeemCode
     ///
     /// Tables (prefix configurable):
     ///   &lt;p&gt;codes        (id, code UNIQUE, max_uses, uses, enabled, expires_at, created_at)
-    ///   &lt;p&gt;code_items   (id, code_id, item_id, amount, quality, state, rot)
+    ///   &lt;p&gt;code_items   (id, code_id, item_id, amount, quality, state, rot, kind)
     ///   &lt;p&gt;redemptions  (id, code_id, steam_id, redeemed_at, UNIQUE(code_id, steam_id))
     /// </summary>
     public sealed class RedeemDatabase
@@ -92,6 +93,7 @@ namespace RedeemCode
                         + "`quality` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
                         + "`state` LONGTEXT NULL,"
                         + "`rot` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+                        + "`kind` TINYINT UNSIGNED NOT NULL DEFAULT 0," // 0 = item, 1 = vehicle
                         + "INDEX `idx_code` (`code_id`)"
                         + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
@@ -100,6 +102,7 @@ namespace RedeemCode
                     AddColumnIfMissing(c, _items, "quality", "TINYINT UNSIGNED NOT NULL DEFAULT 100 AFTER `amount`");
                     AddColumnIfMissing(c, _items, "state",   "LONGTEXT NULL AFTER `quality`");
                     AddColumnIfMissing(c, _items, "rot",     "TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `state`");
+                    AddColumnIfMissing(c, _items, "kind",    "TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `rot`");
 
                     Exec(c, "CREATE TABLE IF NOT EXISTS `" + _redemptions + "` ("
                         + "`id` INT AUTO_INCREMENT PRIMARY KEY,"
@@ -227,7 +230,7 @@ namespace RedeemCode
 
                     // Load the rewards.
                     using (MySqlCommand cmd = new MySqlCommand(
-                        "SELECT `item_id`,`amount`,`quality`,`state` FROM `" + _items + "` WHERE `code_id`=@id;", c))
+                        "SELECT `item_id`,`amount`,`quality`,`state`,`kind` FROM `" + _items + "` WHERE `code_id`=@id;", c))
                     {
                         cmd.Parameters.AddWithValue("@id", codeId);
                         using (MySqlDataReader r = cmd.ExecuteReader())
@@ -259,12 +262,18 @@ namespace RedeemCode
                                     }
                                 }
 
+                                byte kind = 0;
+                                object kObj = r["kind"];
+                                if (kObj != null && kObj != DBNull.Value)
+                                    kind = (byte)(Convert.ToInt32(kObj) == 1 ? 1 : 0);
+
                                 outcome.Items.Add(new ItemReward
                                 {
                                     Id = (ushort)Convert.ToUInt32(r["item_id"]),
                                     Amount = Convert.ToInt32(r["amount"]),
                                     Quality = quality,
-                                    State = state
+                                    State = state,
+                                    Kind = kind
                                 });
                             }
                     }
