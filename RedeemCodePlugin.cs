@@ -107,7 +107,7 @@ namespace RedeemCode
                     continue;
                 }
                 for (int i = 0; i < amount; i++)
-                    if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State))
+                    if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State, reward.ExactState))
                         anyDropped = true;
             }
 
@@ -121,17 +121,42 @@ namespace RedeemCode
         /// Starts from a default-generated Item (so every item type — helmet, food, blueprint, gun —
         /// has a valid state buffer), then overwrites quality, and overwrites state when the code
         /// row carries one (preserves attachments / ammo / durability for P2P listings).
+        ///
+        /// <paramref name="exactState"/> marks a reward whose state was captured exactly (P2P). When it
+        /// is set but the captured state is empty, the item must NOT keep the fabricated default state:
+        /// for a gun that would hand the buyer free attachments + a loaded magazine the seller never
+        /// listed. In that case we strip the gun back to bare (no attachments, empty magazine) while
+        /// keeping a valid state buffer. Non-P2P codes (exactState = false) keep the default item.
         /// </summary>
-        private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state)
+        private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state, bool exactState)
         {
             Item item = new Item(itemId, true);
             item.quality = quality;
             if (state != null && state.Length > 0)
                 item.state = state;
+            else if (exactState)
+                StripGunAttachments(item, itemId);
             if (player.inventory.tryAddItem(item, true))
                 return true;
             ItemManager.dropItem(item, player.transform.position, true, true, true);
             return false;
+        }
+
+        /// <summary>
+        /// Zeroes the attachment + loaded-ammo bytes of a gun's state so it arrives bare. Gun state
+        /// layout: bytes [0..9] = sight/tactical/grip/barrel/magazine ids (UInt16 LE each),
+        /// byte [10] = ammo in magazine. Firemode + durability bytes are left as the default. No-op for
+        /// anything that is not an ItemGunAsset (so magazines, clothing, storage, etc. are untouched).
+        /// </summary>
+        private static void StripGunAttachments(Item item, ushort itemId)
+        {
+            if (!(Assets.find(EAssetType.ITEM, itemId) is ItemGunAsset))
+                return;
+            byte[] s = item.state;
+            if (s == null || s.Length < 11)
+                return;
+            for (int i = 0; i <= 10; i++) // 5 attachment ids (0-9) + magazine ammo (10)
+                s[i] = 0;
         }
 
         /// <summary>

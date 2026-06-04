@@ -24,6 +24,16 @@ namespace RedeemCode
         public byte Quality;
         public byte[] State; // null = use default (existing behaviour); non-null = base64-decoded state from rc_code_items.state
         public byte Kind;    // 0 = item (Id is an item id), 1 = vehicle (Id is a vehicle id)
+
+        /// <summary>
+        /// True when the rc_code_items.state COLUMN carried a value (even an empty string) — i.e. this
+        /// reward came from a flow that captures exact item state (the P2P marketplace). When true the
+        /// delivery must NOT fabricate default attachments: a stripped gun has to arrive stripped, so a
+        /// gun whose captured state is empty is delivered bare rather than as a free fully-kitted gun.
+        /// When false (state column was NULL — shop / welcome / admin codes) the old "generate a usable
+        /// default item" behaviour is kept so those guns still come with a magazine.
+        /// </summary>
+        public bool ExactState;
     }
 
     public sealed class RedeemOutcome
@@ -247,6 +257,7 @@ namespace RedeemCode
 
                                 byte[] state = null;
                                 object sObj = r["state"];
+                                bool exactState = sObj != null && sObj != DBNull.Value; // column present (P2P), even if empty
                                 if (sObj != null && sObj != DBNull.Value)
                                 {
                                     string s = Convert.ToString(sObj);
@@ -273,7 +284,8 @@ namespace RedeemCode
                                     Amount = Convert.ToInt32(r["amount"]),
                                     Quality = quality,
                                     State = state,
-                                    Kind = kind
+                                    Kind = kind,
+                                    ExactState = exactState
                                 });
                             }
                     }
