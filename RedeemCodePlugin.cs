@@ -106,9 +106,23 @@ namespace RedeemCode
                     Logger.LogWarning("[RedeemCode] code '" + code + "' references unknown item id " + reward.Id);
                     continue;
                 }
-                for (int i = 0; i < amount; i++)
-                    if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State, reward.ExactState))
+                if (reward.ExactState)
+                {
+                    // P2P delivery: `amount` is the captured in-game Item.amount (rounds left in a
+                    // magazine, stack size for a stackable) — NOT a copy count. Reproduce the listed
+                    // item exactly: ONE item carrying that amount, never `amount` separate copies.
+                    // (A 50-round mag was being handed out as 50 default-full mags before this.)
+                    int exactAmount = Mathf.Clamp(reward.Amount, 1, 255); // Item.amount is a byte
+                    if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State, true, exactAmount))
                         anyDropped = true;
+                }
+                else
+                {
+                    // Shop / welcome / admin codes: `amount` is a quantity → give that many full items.
+                    for (int i = 0; i < amount; i++)
+                        if (!GiveOrDrop(player, reward.Id, reward.Quality, reward.State, false, 0))
+                            anyDropped = true;
+                }
             }
 
             Say(player, cfg.MsgSuccess, code);
@@ -127,11 +141,17 @@ namespace RedeemCode
         /// for a gun that would hand the buyer free attachments + a loaded magazine the seller never
         /// listed. In that case we strip the gun back to bare (no attachments, empty magazine) while
         /// keeping a valid state buffer. Non-P2P codes (exactState = false) keep the default item.
+        ///
+        /// <paramref name="amount"/>: when &gt; 0 the item's amount byte is set to it (P2P uses this to
+        /// reproduce the listed magazine's rounds / stack size on a single item). When 0 the amount is
+        /// left at the fabricated default (a full stack / full magazine) — the old shop/admin behaviour.
         /// </summary>
-        private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state, bool exactState)
+        private static bool GiveOrDrop(Player player, ushort itemId, byte quality, byte[] state, bool exactState, int amount)
         {
             Item item = new Item(itemId, true);
             item.quality = quality;
+            if (amount > 0)
+                item.amount = (byte)Mathf.Clamp(amount, 1, 255);
             if (state != null && state.Length > 0)
                 item.state = state;
             else if (exactState)
